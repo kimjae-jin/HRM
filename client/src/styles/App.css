@@ -1,0 +1,298 @@
+/* =========================================================
+   Global Theming (라이트/다크 공용 변수)
+   - 컴포넌트는 오직 이 변수만 사용 (하드코딩 금지)
+   ========================================================= */
+:root {
+  /* 배경/텍스트 */
+  --background-color: #ffffff;
+  --text-color: #1f2328;          /* 너무 새까맣지 않은 딥그레이 */
+  --muted: #666a70;               /* 보조 텍스트 */
+
+  /* 보더/표면 */
+  --border: #d0d7de;              /* 저채도 회색 */
+  --bg-elev: #f6f8fa;             /* 카드/표면 살짝 띄운 느낌 */
+
+  /* 인터랙션(하이라이트/포커스) */
+  --accent: #2f6feb;              /* 포커스/활성 색: 저채도 블루 */
+  --accent-weak: #e7eefc;         /* 연한 배경 강조 */
+
+  /* 입력 UI */
+  --input-bg: #f4f5f7;
+  --input-text: var(--text-color);
+  --input-placeholder: #8a9097;
+
+  /* 스크롤바 */
+  --scrollbar-thumb: #c2c8d0;
+  --scrollbar-track: #eef1f4;
+
+  /* 섀도우(은은) */
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+/* 다크 모드 */
+[data-theme="dark"] {
+  --background-color: #121418;
+  --text-color: #e8eaed;
+  --muted: #a4a9b0;
+
+  --border: #2a2f36;
+  --bg-elev: #181c20;
+
+  --accent: #6aa9ff;
+  --accent-weak: #0e243f;
+
+  --input-bg: #1a1f25;
+  --input-text: var(--text-color);
+  --input-placeholder: #8f9aa6;
+
+  --scrollbar-thumb: #39424d;
+  --scrollbar-track: #1a1f25;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* =========================================================
+   Reset & Base
+   ========================================================= */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--background-color);
+  color: var(--text-color);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", "Apple SD Gothic Neo", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 페이지 전체 스크롤 금지, 메인에서만 스크롤 (원페이지 원칙) */
+body { overflow: hidden; }
+
+/* 링크형 버튼 (사이드바/툴바에서 자주 사용) */
+button.link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-color);
+  padding: 0;
+  cursor: pointer;
+}
+button.link:hover { opacity: .85; }
+
+/* 기본 버튼 스타일 (저채도) */
+button.input-grey {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text-color);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: var(--shadow);
+}
+button.input-grey:hover { filter: brightness(0.98); }
+button.input-grey:active { filter: brightness(0.96); }
+button.input-grey:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 텍스트 입력 (눈이 편한 저채도) */
+input.input-grey, select.input-grey, textarea.input-grey {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  box-shadow: var(--shadow);
+}
+input.input-grey::placeholder,
+textarea.input-grey::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* 포커스 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* =========================================================
+   Layout: Header / Sidebar / Main
+   - 헤더/사이드바 고정, 메인만 스크롤
+   ========================================================= */
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;   /* sidebar + main */
+  grid-template-rows: 56px 1fr;       /* header  + main */
+  grid-template-areas:
+    "header header"
+    "sidebar main";
+  height: 100dvh;
+}
+
+/* 헤더 (상단 고정) */
+header.app-header {
+  grid-area: header;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: 56px;
+  border-bottom: 1px solid var(--border);
+  background: var(--background-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* 좌: 시스템시간 / 우: 토글 등 */
+  padding: 0 12px;
+}
+
+/* 사이드바 (좌측 고정) */
+aside.sidebar {
+  grid-area: sidebar;
+  position: sticky;
+  top: 56px; /* 헤더 높이만큼 */
+  align-self: start;
+  height: calc(100dvh - 56px);
+  border-right: 1px solid var(--border);
+  background: var(--background-color);
+  overflow: hidden;  /* 자체 스크롤은 내부 nav에서 처리 */
+}
+
+/* 사이드바 내용 스크롤 (가로 고정/세로 스크롤) */
+aside.sidebar nav {
+  height: calc(100% - 46px); /* 헤더 영역 제외(대략) */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 메인 컨텐츠 (오직 여기서만 스크롤) */
+.app-main {
+  grid-area: main;
+  height: calc(100dvh - 56px);
+  overflow: auto;
+  padding: 12px;
+}
+
+/* =========================================================
+   Cards / Tables / Tabs
+   ========================================================= */
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+
+/* 표 */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+th, td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--background-color);
+  border-top: 0;
+}
+
+/* 탭 바 */
+.tabbar {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.tabbar > button {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-color);
+  padding: 6px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.tabbar > button:hover { background: var(--bg-elev); border-color: var(--border); }
+.tabbar > button.active {
+  background: var(--accent-weak);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+/* 요약 그리드 (상단 카드들) */
+.summary-grid .card {
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* 프로필 카드 (이미지) */
+.card.photo img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
+/* =========================================================
+   Scrollbar (메인/사이드바 등 내부 스크롤에만 적용)
+   ========================================================= */
+.app-main::-webkit-scrollbar,
+aside.sidebar nav::-webkit-scrollbar,
+.card[style*="overflow"]::-webkit-scrollbar,
+div[style*="overflow"]::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.app-main::-webkit-scrollbar-thumb,
+aside.sidebar nav::-webkit-scrollbar-thumb,
+.card[style*="overflow"]::-webkit-scrollbar-thumb,
+div[style*="overflow"]::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid var(--scrollbar-track);
+}
+.app-main::-webkit-scrollbar-track,
+aside.sidebar nav::-webkit-scrollbar-track,
+.card[style*="overflow"]::-webkit-scrollbar-track,
+div[style*="overflow"]::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+/* =========================================================
+   Responsive (iPad mini / 모바일 대비)
+   ========================================================= */
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 1fr;        /* 사이드바 상단으로 접기 */
+    grid-template-rows: 56px auto 1fr; /* header / sidebar / main */
+    grid-template-areas:
+      "header"
+      "sidebar"
+      "main";
+  }
+  aside.sidebar { position: static; height: auto; }
+  aside.sidebar nav { height: auto; max-height: 40dvh; }
+}
+
+@media (max-width: 640px) {
+  header.app-header { padding: 0 8px; }
+  .app-main { padding: 8px; }
+  .tabbar { flex-wrap: wrap; }
+}
+
+/* =========================================================
+   Utility
+   ========================================================= */
+.muted { color: var(--muted); }
+.hr { height: 1px; background: var(--border); border: 0; margin: 8px 0; }
