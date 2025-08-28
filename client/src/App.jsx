@@ -1,69 +1,40 @@
-import React, { useState, useEffect } from "react";
-import Sidebar from "./components/layout/Sidebar";
+import React, { useEffect, useMemo, useState } from "react";
+import Header from "./components/layout/Header.jsx";
+import Sidebar from "./components/layout/Sidebar.jsx";
+import EngineersList from "./pages/engineers/EngineersList.jsx";
+import EngineerDetail from "./pages/engineers/EngineerDetail.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
 
-// Placeholder (개발중 페이지)
-function PlaceholderPage({ title }) {
-  return (
-    <div style={{ padding: "20px" }}>
-      <h2>{title}</h2>
-      <p>🚧 현재 개발중입니다.</p>
-    </div>
-  );
+function useHashRoute(){
+  const [hash,setHash] = useState(window.location.hash || "#/engineers");
+  useEffect(()=>{
+    const on = ()=>setHash(window.location.hash || "#/engineers");
+    window.addEventListener("hashchange", on);
+    return ()=>window.removeEventListener("hashchange", on);
+  },[]);
+  return hash;
 }
 
-export default function App() {
-  const [route, setRoute] = useState("engineers");
-
-  useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.replace("#", "");
-      setRoute(hash || "engineers");
-    };
-    window.addEventListener("hashchange", onHashChange);
-    onHashChange();
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
-  let content;
-  switch (route) {
-    case "engineers":
-      content = <PlaceholderPage title="기술인 관리" />;
-      break;
-    case "training":
-      content = <PlaceholderPage title="교육훈련 관리" />;
-      break;
-    case "qualifications":
-      content = <PlaceholderPage title="자격사항 관리" />;
-      break;
-    case "bizlicenses":
-      content = <PlaceholderPage title="업/면허 관리" />;
-      break;
-    case "finance":
-      content = <PlaceholderPage title="청구/재무 관리" />;
-      break;
-    case "partners":
-      content = <PlaceholderPage title="관계사 관리" />;
-      break;
-    case "invoices":
-      content = <PlaceholderPage title="세금계산서 관리" />;
-      break;
-    case "pq":
-      content = <PlaceholderPage title="PQ 관리" />;
-      break;
-    case "meetings":
-      content = <PlaceholderPage title="주간회의 관리" />;
-      break;
-    case "bids":
-      content = <PlaceholderPage title="입찰 관리" />;
-      break;
-    default:
-      content = <PlaceholderPage title="대시보드" />;
-  }
+export default function App(){
+  const hash = useHashRoute();
+  // route 파싱 (#/engineers, #/engineers/ENG001, #/대시보드 등)
+  const {page, param} = useMemo(()=>{
+    const h = (hash.startsWith("#/")? hash.slice(2): hash).split("/"); // ["engineers", "ENG001"]
+    return { page: decodeURIComponent(h[0]||"engineers"), param: decodeURIComponent(h[1]||"") };
+  },[hash]);
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      <Sidebar />
-      <main style={{ flex: 1, overflow: "auto" }}>{content}</main>
+    <div className="app-shell">
+      <Header />
+      <Sidebar route={page} />
+      <main className="main">
+        {page==="dashboard" || page==="대시보드" ? <Dashboard/> : null}
+        {page==="engineers" && !param ? <EngineersList/> : null}
+        {page==="engineers" && param ? <EngineerDetail engId={param}/> : null}
+        {page!=="engineers" && page!=="dashboard" && page!=="대시보드" ? (
+          <div className="page"><div className="card">[{page}] 카테고리 — 개발중</div></div>
+        ): null}
+      </main>
     </div>
   );
 }

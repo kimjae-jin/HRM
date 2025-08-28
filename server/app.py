@@ -1,88 +1,93 @@
-from flask import Flask, jsonify, request, send_from_directory
-import sqlite3, uuid, datetime, os
-from werkzeug.utils import secure_filename
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
+import sqlite3, os, io
+from datetime import datetime
+from openpyxl import Workbook
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "../database/hrm.db")
 
 app = Flask(__name__)
 CORS(app)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "../database/hrm.db")
-UPLOAD_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../uploads"))
-PROFILE_DIR = os.path.join(UPLOAD_ROOT, "profiles")
-os.makedirs(PROFILE_DIR, exist_ok=True)
-
-ALLOWED_EXTS = {"png", "jpg", "jpeg", "webp"}
-
-def get_conn():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def allowed(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTS
-
-@app.route("/files/<path:subpath>")
-def serve_files(subpath):
-    full_dir = UPLOAD_ROOT
-    return send_from_directory(full_dir, subpath, as_attachment=False)
+def conn():
+  c = sqlite3.connect(DB_PATH)
+  c.row_factory = sqlite3.Row
+  return c
 
 @app.route("/api/health")
 def health():
-    return {"ok": True}
+  return {"ok": True}
 
-@app.route("/api/engineers/<eng_id>", methods=["GET"])
+# 기술인 목록
+@app.route("/api/engineers")
+def list_engineers():
+  q = request.args.get("q","").strip()
+  status = request.args.get("status","전체").strip()
+  order = request.args.get("order","name")
+  dir_ = request.args.get("dir","asc").lower()
+  limit = int(request.args.get("limit","500"))
+  if order not in ("name","department","grade","join_date"): order="name"
+  if dir_ not in ("asc","desc"): dir_="asc"
+
+  sql = "SELECT eng_id,name,department,grade,license,biz_license,join_date,phone,status FROM engineers"
+  wh, prms = [], []
+  if q:
+    wh.append("(name LIKE ? OR department LIKE ? OR grade LIKE ?)")
+    prms += [f"%{q}%", f"%{q}%", f"%{q}%"]
+  if status and status!="전체":
+    wh.append("IFNULL(status,'재직') = ?")
+    prms.append(status)
+  if wh: sql += " WHERE " + " AND ".join(wh)
+  sql += f" ORDER BY {order} {dir_} LIMIT ?"
+  prms.append(limit)
+
+  with conn() as c:
+    rows = [dict(r) for r in c.execute(sql, prms).fetchall()]
+  return jsonify({"engineers": rows})
+
+# 기술인 상세
+@app.route("/api/engineers/<eng_id>")
 def get_engineer(eng_id):
-    conn = get_conn()
-    try:
-        eng = conn.execute("SELECT * FROM engineers WHERE eng_id = ?", (eng_id,)).fetchone()
-        if not eng:
-            return jsonify({"error": "Engineer not found"}), 404
-        edu  = conn.execute("SELECT * FROM education WHERE engineer_id = ?", (eng_id,)).fetchall()
-        qual = conn.execute("SELECT * FROM qualifications WHERE engineer_id = ?", (eng_id,)).fetchall()
-        car  = conn.execute("SELECT * FROM careers WHERE engineer_id = ?", (eng_id,)).fetchall()
-        trn  = conn.execute("SELECT * FROM trainings WHERE engineer_id = ?", (eng_id,)).fetchall()
-        atts = conn.execute("SELECT * FROM attachments WHERE engineer_id = ?", (eng_id,)).fetchall()
-        return jsonify({
-            "engineer": dict(eng),
-            "education": [dict(x) for x in edu],
-            "qualifications": [dict(x) for x in qual],
-            "careers": [dict(x) for x in car],
-            "trainings": [dict(x) for x in trn],
-            "attachments": [dict(x) for x in atts],
-        })
-    finally:
-        conn.close()
+  with conn() as c:
+    eng = c.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+    if not eng:
+      return jsonify({"error":"Engineer not found"}), 404
+    edu  = [dict(x) for x in c.execute("SELECT * FROM education WHERE engineer_id=?", (eng_id,)).fetchall()]
+    quals= [dict(x) for x in c.execute("SELECT * FROM qualifications WHERE engineer_id=?", (eng_id,)).fetchall()]
+    car  = [dict(x) for x in c.execute("SELECT * FROM careers WHERE engineer_id=?", (eng_id,)).fetchall()]
+    trn  = [dict(x) for x in c.execute("SELECT * FROM trainings WHERE engineer_id=?", (eng_id,)).fetchall()]
+  return jsonify({
+    "engineer": dict(eng),
+    "education": edu,
+    "qualifications": quals,
+    "careers": car,
+    "trainings": trn
+  })
 
-@app.route("/api/engineers/<eng_id>/photo", methods=["POST"])
-def upload_photo(eng_id):
-    if "file" not in request.files:
-        return jsonify({"ok": False, "error": "no file"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"ok": False, "error": "empty filename"}), 400
-    if not allowed(file.filename):
-        return jsonify({"ok": False, "error": "unsupported type"}), 415
+# 엑셀 템플릿(한글 헤더)
+@app.route("/api/export/template.xlsx")
+def export_template():
+  wb = Workbook()
+  ws = wb.active
+  ws.title = "기술인"
+  ws.append(["eng_id","성명","생년월일","연락처","부서","등급","자격사항","업/면허","업무중첩","입사일","퇴사예정일","퇴사일","상태","특이사항"])
+  bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+  return send_file(bio, as_attachment=True, download_name="hrm_template.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    ext = file.filename.rsplit(".", 1)[1].lower()
-    filename = secure_filename(f"{eng_id}.{ext}")
-    save_path = os.path.join(PROFILE_DIR, filename)
-    file.save(save_path)
-
-    rel_path = f"profiles/{filename}"
-    url_path = f"/files/{rel_path}"
-
-    conn = get_conn()
-    try:
-        cur = conn.execute("SELECT eng_id FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
-        if not cur:
-            return jsonify({"ok": False, "error": "engineer not found"}), 404
-        conn.execute("UPDATE engineers SET photo_path=? WHERE eng_id=?", (url_path, eng_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-    return jsonify({"ok": True, "photo_path": url_path})
+# 전체 내보내기(간단)
+@app.route("/api/export/all.xlsx")
+def export_all():
+  with conn() as c:
+    rows = [dict(r) for r in c.execute("SELECT * FROM engineers ORDER BY name").fetchall()]
+  wb = Workbook(); ws = wb.active; ws.title="기술인"
+  if rows:
+    ws.append(list(rows[0].keys()))
+    for r in rows: ws.append([r.get(k,"") for k in rows[0].keys()])
+  bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+  fn = f"hrm_all_{datetime.now().date()}.xlsx"
+  return send_file(bio, as_attachment=True, download_name=fn, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5050)), debug=True)
+  port = int(os.environ.get("PORT","5050"))
+  app.run(host="127.0.0.1", port=port, debug=True)
