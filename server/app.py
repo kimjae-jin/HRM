@@ -1,93 +1,109 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-import sqlite3, os, io
-from datetime import datetime
-from openpyxl import Workbook
+import os, sqlite3
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "../database/hrm.db")
+DB_PATH  = os.path.join(BASE_DIR, "../database/hrm.db")
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 app = Flask(__name__)
 CORS(app)
 
-def conn():
-  c = sqlite3.connect(DB_PATH)
-  c.row_factory = sqlite3.Row
-  return c
-
 @app.route("/api/health")
 def health():
-  return {"ok": True}
+    return {"ok": True}
 
-# 기술인 목록
-@app.route("/api/engineers")
+# === Engineers: list & detail (간단 버전) ===
+@app.route("/api/engineers", methods=["GET"])
 def list_engineers():
-  q = request.args.get("q","").strip()
-  status = request.args.get("status","전체").strip()
-  order = request.args.get("order","name")
-  dir_ = request.args.get("dir","asc").lower()
-  limit = int(request.args.get("limit","500"))
-  if order not in ("name","department","grade","join_date"): order="name"
-  if dir_ not in ("asc","desc"): dir_="asc"
+    q = request.args.get("q","").strip()
+    limit = int(request.args.get("limit","500") or "500")
+    order = request.args.get("order","name")
+    dirn  = request.args.get("dir","asc").lower()
+    status = request.args.get("status","전체")
+    admin  = request.args.get("admin","0") == "1"
 
-  sql = "SELECT eng_id,name,department,grade,license,biz_license,join_date,phone,status FROM engineers"
-  wh, prms = [], []
-  if q:
-    wh.append("(name LIKE ? OR department LIKE ? OR grade LIKE ?)")
-    prms += [f"%{q}%", f"%{q}%", f"%{q}%"]
-  if status and status!="전체":
-    wh.append("IFNULL(status,'재직') = ?")
-    prms.append(status)
-  if wh: sql += " WHERE " + " AND ".join(wh)
-  sql += f" ORDER BY {order} {dir_} LIMIT ?"
-  prms.append(limit)
+    allowed_order = {"name","department","join_date","leave_date","leaving_expected_date"}
+    if order not in allowed_order:
+        order = "name"
+    dirn = "DESC" if dirn == "desc" else "ASC"
 
-  with conn() as c:
-    rows = [dict(r) for r in c.execute(sql, prms).fetchall()]
-  return jsonify({"engineers": rows})
+    sql = """
+    SELECT eng_id, name, department, grade, license, biz_license,
+           phone, join_date, leaving_expected_date, leave_date, status, photo_path, address
+    FROM engineers
+    WHERE 1=1
+    """
+    params = []
+    if q:
+        sql += " AND (eng_id LIKE ? OR name LIKE ? OR department LIKE ?)"
+        params += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    if status and status != "전체":
+        if admin:
+            sql += " AND status = ?"
+            params += [status]
+        else:
+            if status == "삭제" or status == "삭제대기":
+                sql += " AND 1=0"
+            else:
+                sql += " AND status = ?"
+                params += [status]
+    else:
+        if not admin:
+            sql += " AND (status IS NULL OR status NOT IN ('삭제','삭제대기'))"
 
-# 기술인 상세
-@app.route("/api/engineers/<eng_id>")
+    sql += f" ORDER BY {order} {dirn} LIMIT ?"
+    params.append(limit)
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        return jsonify({"engineers":[dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+@app.route("/api/engineers/<eng_id>", methods=["GET"])
 def get_engineer(eng_id):
-  with conn() as c:
-    eng = c.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
-    if not eng:
-      return jsonify({"error":"Engineer not found"}), 404
-    edu  = [dict(x) for x in c.execute("SELECT * FROM education WHERE engineer_id=?", (eng_id,)).fetchall()]
-    quals= [dict(x) for x in c.execute("SELECT * FROM qualifications WHERE engineer_id=?", (eng_id,)).fetchall()]
-    car  = [dict(x) for x in c.execute("SELECT * FROM careers WHERE engineer_id=?", (eng_id,)).fetchall()]
-    trn  = [dict(x) for x in c.execute("SELECT * FROM trainings WHERE engineer_id=?", (eng_id,)).fetchall()]
-  return jsonify({
-    "engineer": dict(eng),
-    "education": edu,
-    "qualifications": quals,
-    "careers": car,
-    "trainings": trn
-  })
+    conn = get_conn()
+    try:
+        eng = conn.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+        if not eng:
+            return jsonify({"error":"Engineer not found"}), 404
+        def allq(t):
+            try:
+                return [dict(x) for x in conn.execute(f"SELECT * FROM {t} WHERE engineer_id=?", (eng_id,)).fetchall()]
+            except sqlite3.OperationalError:
+                return []
+        return jsonify({
+            "engineer": dict(eng),
+            "education": allq("education"),
+            "qualifications": allq("qualifications"),
+            "careers": allq("careers"),
+            "trainings": allq("trainings"),
+            "attachments": allq("attachments")
+        })
+    finally:
+        conn.close()
 
-# 엑셀 템플릿(한글 헤더)
-@app.route("/api/export/template.xlsx")
-def export_template():
-  wb = Workbook()
-  ws = wb.active
-  ws.title = "기술인"
-  ws.append(["eng_id","성명","생년월일","연락처","부서","등급","자격사항","업/면허","업무중첩","입사일","퇴사예정일","퇴사일","상태","특이사항"])
-  bio = io.BytesIO(); wb.save(bio); bio.seek(0)
-  return send_file(bio, as_attachment=True, download_name="hrm_template.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+# === Import blueprint 등록 ===
+from import_routes import import_routes
+app.register_blueprint(import_routes, url_prefix="/api")
 
-# 전체 내보내기(간단)
-@app.route("/api/export/all.xlsx")
-def export_all():
-  with conn() as c:
-    rows = [dict(r) for r in c.execute("SELECT * FROM engineers ORDER BY name").fetchall()]
-  wb = Workbook(); ws = wb.active; ws.title="기술인"
-  if rows:
-    ws.append(list(rows[0].keys()))
-    for r in rows: ws.append([r.get(k,"") for k in rows[0].keys()])
-  bio = io.BytesIO(); wb.save(bio); bio.seek(0)
-  fn = f"hrm_all_{datetime.now().date()}.xlsx"
-  return send_file(bio, as_attachment=True, download_name=fn, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+# 디버그: 라우트 목록
+@app.route("/api/routes")
+def routes():
+    out = []
+    for r in app.url_map.iter_rules():
+        out.append({"rule": str(r), "methods": list(r.methods)})
+    return jsonify(out)
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT","5050"))
-  app.run(host="127.0.0.1", port=port, debug=True)
+    port = int(os.environ.get("PORT","5050"))
+    app.run(host="127.0.0.1", port=port, debug=True)
+
+from admin_routes import admin_bp
+app.register_blueprint(admin_bp)

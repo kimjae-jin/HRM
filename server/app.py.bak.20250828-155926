@@ -1,0 +1,797 @@
+# -*- coding: utf-8 -*-
+import os, uuid, sqlite3, datetime, json
+from flask import Flask, request, jsonify, send_from_directory, Response
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+CORS(app)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.path.join(BASE_DIR, "../database/hrm.db")
+
+UPLOAD_ROOT = os.path.abspath(os.path.join(BASE_DIR, "../uploads"))
+PROFILE_DIR = os.path.join(UPLOAD_ROOT, "profiles")
+os.makedirs(PROFILE_DIR, exist_ok=True)
+
+ALLOWED_EXTS = {"png","jpg","jpeg","webp","pdf","xls","xlsx"}
+
+def get_conn():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+def col_exists(conn, table, col):
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        return any(r["name"] == col for r in rows)
+    except:
+        return False
+
+def allowed(filename):
+    return "." in filename and filename.rsplit(".",1)[1].lower() in ALLOWED_EXTS
+
+# ========= 공용 =========
+@app.route("/api/health")
+def health():
+    return {"ok": True}
+
+@app.route("/files/<path:subpath>")
+def serve_files(subpath):
+    return send_from_directory(UPLOAD_ROOT, subpath, as_attachment=False)
+
+# ========= 엔지니어 =========
+@app.route("/api/engineers", methods=["GET"])
+def list_engineers():
+    q = (request.args.get("q") or "").strip()
+    limit = int(request.args.get("limit") or 500)
+    order = request.args.get("order") or "name"
+    dir_  = (request.args.get("dir") or "asc").lower()
+    status= request.args.get("status") or "전체"
+    admin = int(request.args.get("admin") or 0)
+
+    order = order if order in {"name","department","grade","join_date"} else "name"
+    dir_  = "DESC" if dir_=="desc" else "ASC"
+
+    conn = get_conn()
+    try:
+        has_status = col_exists(conn, "engineers", "status")
+        has_biz    = col_exists(conn, "engineers", "biz_license")
+        has_photo  = col_exists(conn, "engineers", "photo_path")
+
+        cols = ["eng_id","name","department","grade","join_date","phone"]
+        if has_status: cols.append("status")
+        if has_biz:    cols.append("biz_license")
+        if has_photo:  cols.append("photo_path")
+        select_cols = ", ".join(cols)
+
+        base = f"SELECT {select_cols} FROM engineers WHERE 1=1"
+        params=[]
+        if q:
+            like=f"%{q}%"
+            base += " AND (name LIKE ? OR department LIKE ? OR grade LIKE ?)"
+            params += [like, like, like]
+        if has_status and status and status!="전체":
+            base += " AND status = ?"; params.append(status)
+        if not admin and has_status:
+            base += " AND (status IS NULL OR status NOT IN ('삭제','삭제대기'))"
+
+        sql = f"{base} ORDER BY {order} {dir_} LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return jsonify({"engineers":[dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+@app.route("/api/engineers/<eng_id>", methods=["GET"])
+def get_engineer(eng_id):
+    conn = get_conn()
+    try:
+        eng = conn.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+        if not eng: return jsonify({"error":"Engineer not found"}), 404
+
+        def safe_all(tbl):
+            try:
+                if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
+                    return [dict(x) for x in conn.execute(f"SELECT * FROM {tbl} WHERE engineer_id=?", (eng_id,)).fetchall()]
+                return []
+            except:
+                return []
+        return jsonify({
+            "engineer": dict(eng),
+            "education": safe_all("education"),
+            "qualifications": safe_all("qualifications"),
+            "careers": safe_all("careers"),
+            "trainings": safe_all("trainings"),
+            "attachments": safe_all("attachments")
+        })
+    finally:
+        conn.close()
+
+# 편집 락
+@app.route("/api/edit_session/start", methods=["POST"])
+def start_edit():
+    payload = request.get_json(force=True)
+    editor_id = payload.get("editor_id") or "unknown"
+    conn = get_conn()
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS edit_locks(
+            id INTEGER PRIMARY KEY CHECK(id=1),
+            is_locked INTEGER DEFAULT 0,
+            editor_id TEXT,
+            locked_at TEXT
+        )""")
+        row = conn.execute("SELECT is_locked FROM edit_locks WHERE id=1").fetchone()
+        if not row:
+            conn.execute("INSERT INTO edit_locks(id,is_locked) VALUES(1,0)")
+            conn.commit()
+            row = conn.execute("SELECT is_locked FROM edit_locks WHERE id=1").fetchone()
+        if row["is_locked"]==1:
+            return jsonify({"ok":False,"reason":"locked"}), 423
+        conn.execute("UPDATE edit_locks SET is_locked=1, editor_id=?, locked_at=? WHERE id=1",
+                     (editor_id, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return jsonify({"ok":True})
+    finally:
+        conn.close()
+
+@app.route("/api/edit_session/end", methods=["POST"])
+def end_edit():
+    conn = get_conn()
+    try:
+        conn.execute("UPDATE edit_locks SET is_locked=0, editor_id=NULL, locked_at=NULL WHERE id=1")
+        conn.commit()
+        return jsonify({"ok":True})
+    finally:
+        conn.close()
+
+@app.route("/api/edit_session/status", methods=["GET"])
+def status_edit():
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT * FROM edit_locks WHERE id=1").fetchone()
+        return jsonify(dict(row) if row else {"id":1,"is_locked":0,"editor_id":None,"locked_at":None})
+    finally:
+        conn.close()
+
+# 프로필 사진
+@app.route("/api/engineers/<eng_id>/photo", methods=["POST"])
+def upload_photo(eng_id):
+    if "file" not in request.files: return jsonify({"ok":False,"error":"no file"}),400
+    f = request.files["file"]
+    if f.filename == "": return jsonify({"ok":False,"error":"empty filename"}),400
+    if not allowed(f.filename): return jsonify({"ok":False,"error":"unsupported type"}),415
+    ext = f.filename.rsplit(".",1)[1].lower()
+    name = secure_filename(f"{eng_id}.{ext}")
+    save_path = os.path.join(PROFILE_DIR, name)
+    f.save(save_path)
+    url = f"/files/profiles/{name}"
+    conn = get_conn()
+    try:
+        cur = conn.execute("SELECT eng_id FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+        if not cur: return jsonify({"ok":False,"error":"engineer not found"}),404
+        if col_exists(conn, "engineers","photo_path"):
+            conn.execute("UPDATE engineers SET photo_path=? WHERE eng_id=?", (url,eng_id))
+            conn.commit()
+        return jsonify({"ok":True,"photo_path":url})
+    finally:
+        conn.close()
+
+# ========= 엑셀 내보내기 =========
+from io import BytesIO
+try:
+    import pandas as pd
+except:
+    pd = None
+
+@app.route("/api/export/template.xlsx")
+def export_template():
+    if pd is None: return jsonify({"error":"pandas not installed"}),500
+    cols = ["사번","성명","생년월일","연락처","부서","등급","자격사항","업/면허","업무중첩","입사일","퇴사예정일","퇴사일","상태","비고"]
+    df = pd.DataFrame(columns=cols)
+    bio=BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="기술인")
+    bio.seek(0)
+    return app.response_class(bio.read(),
+      headers={"Content-Disposition":"attachment; filename=hrm_template.xlsx"},
+      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/api/export/all.xlsx")
+def export_all():
+    if pd is None: return jsonify({"error":"pandas not installed"}),500
+    conn=get_conn()
+    try:
+        rows=conn.execute("SELECT * FROM engineers").fetchall()
+        df=pd.DataFrame([dict(r) for r in rows])
+    finally:
+        conn.close()
+    bio=BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="기술인전체")
+    bio.seek(0)
+    fname=f"hrm_all_{datetime.date.today().isoformat()}.xlsx"
+    return app.response_class(bio.read(),
+      headers={"Content-Disposition":f"attachment; filename={fname}"},
+      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/api/export/one/<eng_id>.xlsx")
+def export_one(eng_id):
+    if pd is None: return jsonify({"error":"pandas not installed"}),500
+    conn=get_conn()
+    try:
+        eng=conn.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+        if not eng: return jsonify({"error":"not found"}),404
+        df=pd.DataFrame([dict(eng)])
+    finally:
+        conn.close()
+    bio=BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="개인")
+    bio.seek(0)
+    fname=f"{eng_id}_{datetime.date.today().isoformat()}.xlsx"
+    return app.response_class(bio.read(),
+      headers={"Content-Disposition":f"attachment; filename={fname}"},
+      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ========= 프로젝트/계약 (다대다) =========
+def compute_equity(total_amount, supply, vat):
+    try:
+        supply = float(supply or 0)
+        vat    = float(vat or 0)
+        total  = float(total_amount or 0)
+        te = supply + vat
+        ratio = round((te/total), 4) if total > 0 else None
+        return te, ratio
+    except:
+        return None, None
+
+def safe_dict(row):
+    return dict(row) if row else None
+
+@app.route("/api/projects", methods=["GET"])
+def list_projects():
+    q = (request.args.get("q") or "").strip()
+    status = (request.args.get("status") or "").strip()
+    category = (request.args.get("category") or "").strip()
+    limit = int(request.args.get("limit") or 500)
+    conn = get_conn()
+    try:
+        sql = "SELECT project_id, project_name, project_category, pm_name, status, updated_at FROM projects WHERE 1=1"
+        params=[]
+        if q:
+            like=f"%{q}%"
+            sql += " AND (project_name LIKE ? OR pm_name LIKE ?)"; params += [like, like]
+        if status:
+            sql += " AND status=?"; params.append(status)
+        if category:
+            sql += " AND project_category=?"; params.append(category)
+        sql += " ORDER BY updated_at DESC LIMIT ?"; params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return jsonify({"projects":[dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+@app.route("/api/projects/<pid>", methods=["GET"])
+def get_project(pid):
+    conn = get_conn()
+    try:
+        p = conn.execute("SELECT * FROM projects WHERE project_id=?", (pid,)).fetchone()
+        if not p: return jsonify({"error":"Project not found"}),404
+
+        # 연결테이블 기준으로 계약 조회
+        linked = conn.execute("""
+          SELECT c.*, cp.share_total_amount, cp.share_supply_amount, cp.share_vat_amount,
+                 cp.share_total_equity_amount, cp.share_equity_ratio
+          FROM contract_projects cp
+          JOIN contracts c ON c.contract_id = cp.contract_id
+          WHERE cp.project_id=?
+          ORDER BY c.updated_at DESC
+        """, (pid,)).fetchall()
+
+        # 구버전(contracts.project_id=pid)도 포함 (연결 누락 대비)
+        legacy = conn.execute("""
+          SELECT c.*, NULL as share_total_amount, NULL as share_supply_amount, NULL as share_vat_amount,
+                 NULL as share_total_equity_amount, NULL as share_equity_ratio
+          FROM contracts c WHERE c.project_id=?
+            AND NOT EXISTS(SELECT 1 FROM contract_projects cp WHERE cp.contract_id=c.contract_id AND cp.project_id=?)
+          ORDER BY c.updated_at DESC
+        """,(pid,pid)).fetchall()
+
+        contracts = [dict(x) for x in linked] + [dict(x) for x in legacy]
+
+        # 리비전 전부
+        revisions=[]
+        for c in contracts:
+            cid = c["contract_id"]
+            revs = conn.execute("SELECT * FROM contract_revisions WHERE contract_id=? ORDER BY revision_number ASC, created_at ASC", (cid,)).fetchall()
+            revisions += [dict(r) for r in revs]
+
+        return jsonify({"project":dict(p), "contracts":contracts, "revisions":revisions})
+    finally:
+        conn.close()
+
+@app.route("/api/contracts/<cid>", methods=["GET"])
+def get_contract(cid):
+    conn = get_conn()
+    try:
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (cid,)).fetchone()
+        if not c: return jsonify({"error":"Contract not found"}),404
+        links = conn.execute("""
+          SELECT cp.*, p.project_name, p.status as project_status
+          FROM contract_projects cp JOIN projects p ON p.project_id=cp.project_id
+          WHERE cp.contract_id=?
+        """,(cid,)).fetchall()
+        revs = conn.execute("SELECT * FROM contract_revisions WHERE contract_id=? ORDER BY revision_number ASC, created_at ASC", (cid,)).fetchall()
+        return jsonify({"contract":dict(c), "linked_projects":[dict(x) for x in links], "revisions":[dict(r) for r in revs]})
+    finally:
+        conn.close()
+
+@app.route("/api/contracts", methods=["POST"])
+def create_contract():
+    payload = request.get_json(force=True)
+    conn = get_conn()
+    try:
+        cid = payload.get("contract_id") or str(uuid.uuid4())
+        ta, sa, va = payload.get("total_amount"), payload.get("supply_amount"), payload.get("vat_amount")
+        te, er = compute_equity(ta, sa, va)
+        now = datetime.datetime.utcnow().isoformat()
+        conn.execute("""
+          INSERT INTO contracts(contract_id, project_id, contract_type, contract_date, start_date, end_date,
+                                total_amount, supply_amount, vat_amount, total_equity_amount, equity_ratio,
+                                contract_file_url, remarks, created_at, updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (cid, payload.get("project_id"), payload.get("contract_type"), payload.get("contract_date"),
+              payload.get("start_date"), payload.get("end_date"),
+              ta, sa, va, te, er, payload.get("contract_file_url"), payload.get("remarks"), now, now))
+        conn.commit()
+        return jsonify({"ok":True,"contract_id":cid,"total_equity_amount":te,"equity_ratio":er})
+    finally:
+        conn.close()
+
+@app.route("/api/contracts/<cid>/link_project", methods=["POST"])
+def link_project(cid):
+    payload = request.get_json(force=True)
+    pid = payload.get("project_id")
+    if not pid: return jsonify({"ok":False,"error":"project_id required"}),400
+    conn = get_conn()
+    try:
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (cid,)).fetchone()
+        p = conn.execute("SELECT * FROM projects WHERE project_id=?", (pid,)).fetchone()
+        if not c or not p: return jsonify({"ok":False,"error":"not found"}),404
+
+        sa = payload.get("share_supply_amount")
+        sv = payload.get("share_vat_amount")
+        st = payload.get("share_total_amount")
+        if st is None:
+            # 전체 계약금액이 있으면 동일 배분(또는 공급+부가세로부터 계산)
+            st = payload.get("share_total_amount") or c["total_amount"]
+        te, er = compute_equity(st, sa, sv)
+
+        now = datetime.datetime.utcnow().isoformat()
+        conn.execute("""
+          INSERT OR IGNORE INTO contract_projects(
+            id, contract_id, project_id, share_total_amount, share_supply_amount, share_vat_amount,
+            share_total_equity_amount, share_equity_ratio, remarks, created_at, updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        """, (str(uuid.uuid4()), cid, pid, st, sa, sv, te, er, payload.get("remarks"), now, now))
+        conn.execute("UPDATE projects SET updated_at=? WHERE project_id=?", (now, pid))
+        conn.commit()
+        return jsonify({"ok":True,"share_total_equity_amount":te,"share_equity_ratio":er})
+    finally:
+        conn.close()
+
+# 기존: 프로젝트 상세에서 최초 계약 생성 (이제 연결테이블도 같이 삽입)
+@app.route("/api/projects/<pid>/contracts", methods=["POST"])
+def add_contract(pid):
+    payload = request.get_json(force=True)
+    conn = get_conn()
+    try:
+        p = conn.execute("SELECT project_id FROM projects WHERE project_id=?", (pid,)).fetchone()
+        if not p: return jsonify({"error":"Project not found"}),404
+        cid = payload.get("contract_id") or str(uuid.uuid4())
+        ta, sa, va = payload.get("total_amount"), payload.get("supply_amount"), payload.get("vat_amount")
+        te, er = compute_equity(ta, sa, va)
+        now = datetime.datetime.utcnow().isoformat()
+        # contracts에 project_id 함께 저장(레거시 호환)
+        conn.execute("""
+          INSERT INTO contracts(contract_id, project_id, contract_type, contract_date, start_date, end_date,
+                                total_amount, supply_amount, vat_amount, total_equity_amount, equity_ratio,
+                                contract_file_url, remarks, created_at, updated_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (cid, pid, payload.get("contract_type"), payload.get("contract_date"),
+              payload.get("start_date"), payload.get("end_date"),
+              ta, sa, va, te, er, payload.get("contract_file_url"), payload.get("remarks"), now, now))
+        # 연결테이블에도 1:1로 삽입(기본 100% 배분 가정)
+        conn.execute("""
+          INSERT OR IGNORE INTO contract_projects(
+            id, contract_id, project_id, share_total_amount, share_supply_amount, share_vat_amount,
+            share_total_equity_amount, share_equity_ratio, created_at, updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?)
+        """, (str(uuid.uuid4()), cid, pid, ta, sa, va, te, er, now, now))
+        conn.execute("UPDATE projects SET updated_at=? WHERE project_id=?", (now, pid))
+        conn.commit()
+        return jsonify({"ok":True,"contract_id":cid,"total_equity_amount":te,"equity_ratio":er})
+    finally:
+        conn.close()
+
+@app.route("/api/contracts/<cid>/revisions", methods=["POST"])
+def add_revision(cid):
+    payload = request.get_json(force=True)
+    conn = get_conn()
+    try:
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (cid,)).fetchone()
+        if not c: return jsonify({"error":"Contract not found"}),404
+        rid  = payload.get("revision_id") or str(uuid.uuid4())
+        rnum = int(payload.get("revision_number") or 1)
+        rta, rte = payload.get("revised_total_amount"), payload.get("revised_total_equity_amount")
+        rr = None
+        try:
+            total = float(rta or 0)
+            rr = round((float(rte or 0)/total), 4) if total>0 else None
+        except: pass
+
+        now = datetime.datetime.utcnow().isoformat()
+        conn.execute("""
+          INSERT INTO contract_revisions(
+            revision_id, contract_id, revision_date, revised_start_date, revised_end_date, final_end_date,
+            revised_total_amount, revised_total_equity_amount, revised_equity_ratio,
+            revision_proof_file_url, revision_contract_file_url, change_reason, revision_number, created_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,(rid, cid, payload.get("revision_date"), payload.get("revised_start_date"),
+             payload.get("revised_end_date"), payload.get("final_end_date"),
+             rta, rte, rr, payload.get("revision_proof_file_url"), payload.get("revision_contract_file_url"),
+             payload.get("change_reason"), rnum, now))
+        conn.execute("UPDATE contracts SET updated_at=? WHERE contract_id=?", (now, cid))
+        conn.commit()
+        return jsonify({"ok":True,"revision_id":rid,"revised_equity_ratio":rr})
+    finally:
+        conn.close()
+
+# ========= 문서(HTML) 자동 생성 =========
+def html_resp(html:str, filename:str="doc.html"):
+    return Response(html, mimetype="text/html",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'})
+
+def fmt_money(v):
+    try: return f"{float(v):,.0f}"
+    except: return "-"
+
+@app.route("/api/docs/eligibility/<pid>")
+def doc_eligibility(pid):
+    conn=get_conn()
+    try:
+        p = conn.execute("SELECT * FROM projects WHERE project_id=?", (pid,)).fetchone()
+        if not p: return html_resp("<h1>프로젝트가 없습니다</h1>")
+        links = conn.execute("""
+          SELECT c.contract_id, c.contract_type, c.total_amount, c.total_equity_amount,
+                 cp.share_total_amount, cp.share_total_equity_amount
+          FROM contracts c
+          LEFT JOIN contract_projects cp ON cp.contract_id=c.contract_id AND cp.project_id=?
+          WHERE c.project_id=? OR cp.project_id=?
+        """,(pid,pid,pid)).fetchall()
+    finally:
+        conn.close()
+    rows_html = "".join(
+      f"<tr><td>{x['contract_id']}</td><td>{x['contract_type'] or ''}</td>"
+      f"<td style='text-align:right'>{fmt_money(x['share_total_amount'] or x['total_amount'])}</td>"
+      f"<td style='text-align:right'>{fmt_money(x['share_total_equity_amount'] or x['total_equity_amount'])}</td></tr>"
+      for x in links
+    )
+    html=f"""
+<!doctype html><meta charset="utf-8">
+<style>
+body{{font-family: system-ui, -apple-system, 'Apple SD Gothic Neo', Segoe UI, Roboto, sans-serif;}}
+h1{{margin:0 0 8px}}
+table{{border-collapse:collapse;width:100%}} th,td{{border:1px solid #ddd;padding:6px}}
+.small{{opacity:.7;font-size:12px}}
+</style>
+<h1>적격심사 요약</h1>
+<div class="small">프로젝트ID: {pid} · 상태: {p['status'] or ''} · PM: {p['pm_name'] or ''}</div>
+<p>계약/배분 요약</p>
+<table><thead><tr><th>계약ID</th><th>구분</th><th>배분 총액</th><th>배분 지분금액</th></tr></thead>
+<tbody>{rows_html or "<tr><td colspan=4>데이터 없음</td></tr>"}</tbody></table>
+"""
+    return html_resp(html, f"eligibility_{pid}.html")
+
+@app.route("/api/docs/contract/<cid>")
+def doc_contract(cid):
+    conn=get_conn()
+    try:
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (cid,)).fetchone()
+        if not c: return html_resp("<h1>계약이 없습니다</h1>")
+        links = conn.execute("""
+          SELECT p.project_id, p.project_name, cp.share_total_amount, cp.share_total_equity_amount
+          FROM contract_projects cp JOIN projects p ON p.project_id=cp.project_id
+          WHERE cp.contract_id=?
+        """,(cid,)).fetchall()
+    finally:
+        conn.close()
+    rows_html = "".join(
+      f"<tr><td>{x['project_id']}</td><td>{x['project_name'] or ''}</td>"
+      f"<td style='text-align:right'>{fmt_money(x['share_total_amount'])}</td>"
+      f"<td style='text-align:right'>{fmt_money(x['share_total_equity_amount'])}</td></tr>"
+      for x in links
+    )
+    html=f"""
+<!doctype html><meta charset="utf-8">
+<style>body{{font-family: system-ui,-apple-system,'Apple SD Gothic Neo',Segoe UI,Roboto,sans-serif}}
+table{{border-collapse:collapse;width:100%}} th,td{{border:1px solid #ddd;padding:6px}}</style>
+<h1>계약서 요약</h1>
+<ul>
+  <li>계약ID: {cid}</li>
+  <li>계약일: {c['contract_date'] or ''} / 착수일: {c['start_date'] or ''} / 종료예정: {c['end_date'] or ''}</li>
+  <li>총액: {fmt_money(c['total_amount'])} / 지분총액: {fmt_money(c['total_equity_amount'])} (지분율: {c['equity_ratio']})</li>
+</ul>
+<h3>연결 프로젝트</h3>
+<table><thead><tr><th>프로젝트ID</th><th>계약명</th><th>배분 총액</th><th>배분 지분금액</th></tr></thead>
+<tbody>{rows_html or "<tr><td colspan=4>연결 없음</td></tr>"}</tbody></table>
+"""
+    return html_resp(html, f"contract_{cid}.html")
+
+@app.route("/api/docs/commence/<pid>")
+def doc_commence(pid):
+    conn=get_conn()
+    try:
+        p = conn.execute("SELECT * FROM projects WHERE project_id=?", (pid,)).fetchone()
+        if not p: return html_resp("<h1>프로젝트가 없습니다</h1>")
+    finally:
+        conn.close()
+    html=f"""
+<!doctype html><meta charset="utf-8">
+<style>body{{font-family: system-ui,-apple-system,'Apple SD Gothic Neo',Segoe UI,Roboto,sans-serif}}</style>
+<h1>착수계</h1>
+<p>프로젝트ID: {pid}</p>
+<p>계약명: {p['project_name'] or ''}</p>
+<p>PM: {p['pm_name'] or ''} / 상태: {p['status'] or ''}</p>
+<p>과업 위치: {p['project_location'] or ''}</p>
+<p>요약: {p['summary'] or ''}</p>
+"""
+    return html_resp(html, f"commence_{pid}.html")
+
+@app.route("/api/docs/invoice/<cid>")
+def doc_invoice(cid):
+    conn=get_conn()
+    try:
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (cid,)).fetchone()
+        if not c: return html_resp("<h1>계약이 없습니다</h1>")
+    finally:
+        conn.close()
+    html=f"""
+<!doctype html><meta charset="utf-8">
+<style>body{{font-family: system-ui,-apple-system,'Apple SD Gothic Neo',Segoe UI,Roboto,sans-serif}}</style>
+<h1>청구서(요약)</h1>
+<p>계약ID: {cid}</p>
+<p>청구내역/금액/세금계산서는 2단계 청구모듈에서 상세 생성됩니다.</p>
+<p>총 계약금액: {fmt_money(c['total_amount'])} / 지분총액: {fmt_money(c['total_equity_amount'])}</p>
+"""
+    return html_resp(html, f"invoice_{cid}.html")
+
+@app.route("/api/docs/change/<rid>")
+def doc_change(rid):
+    conn=get_conn()
+    try:
+        r = conn.execute("SELECT * FROM contract_revisions WHERE revision_id=?", (rid,)).fetchone()
+        if not r: return html_resp("<h1>변경계약 기록이 없습니다</h1>")
+        c = conn.execute("SELECT * FROM contracts WHERE contract_id=?", (r["contract_id"],)).fetchone()
+    finally:
+        conn.close()
+    html=f"""
+<!doctype html><meta charset="utf-8">
+<style>body{{font-family: system-ui,-apple-system,'Apple SD Gothic Neo',Segoe UI,Roboto,sans-serif}}</style>
+<h1>변경계약(차수 {r['revision_number']})</h1>
+<ul>
+  <li>계약ID: {r['contract_id']}</li>
+  <li>변경 계약일: {r['revision_date'] or ''}</li>
+  <li>변경 총액: {fmt_money(r['revised_total_amount'])} / 변경 지분총액: {fmt_money(r['revised_total_equity_amount'])} / 지분율: {r['revised_equity_ratio']}</li>
+  <li>사유: {r['change_reason'] or ''}</li>
+</ul>
+"""
+    return html_resp(html, f"change_{rid}.html")
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT","5000"))
+    app.run(host="0.0.0.0", port=port, debug=True)
+
+# [ADD] Export template blueprint 등록
+try:
+    from routes.export_template import export_bp
+    app.register_blueprint(export_bp)
+except Exception as e:
+    print("export_template blueprint load failed:", e)
+
+# ====== (추가) 템플릿 v2: 한국어/주소 포함 ======
+@app.route("/api/export/template2.xlsx", methods=["GET"])
+def export_template2():
+    import pandas as pd
+    from io import BytesIO
+    from flask import send_file
+
+    columns = [
+        "사번",
+        "성명",
+        "주민등록번호",
+        "입사일",
+        "주소",
+        "전화번호",
+        "부서명",
+        "퇴사예정일",
+        "퇴사일",
+        "비고",
+    ]
+    df = pd.DataFrame(columns=columns)
+    buf = BytesIO()
+    df.to_excel(buf, index=False, engine="openpyxl")
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name="hrm_template.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+# ====== (추가) 기술인 리스트 v2 ======
+@app.route("/api/engineers_v2", methods=["GET"])
+def list_engineers_v2():
+    q      = request.args.get("q", "").strip()
+    limit  = int(request.args.get("limit", 500))
+    order  = request.args.get("order", "name")
+    dir_   = request.args.get("dir", "asc").lower()
+    status = request.args.get("status", "전체")
+    admin  = request.args.get("admin", "0")  # "1"이면 삭제 포함
+
+    order_map = {
+        "name": "name",
+        "department": "department",
+        "grade": "grade",
+        "join_date": "join_date",
+        "leaving_expected_date": "leaving_expected_date",
+        "leave_date": "leave_date",
+    }
+    order_col = order_map.get(order, "name")
+    dir_sql   = "DESC" if dir_ == "desc" else "ASC"
+
+    where = []
+    params = []
+
+    if q:
+        like = f"%{q}%"
+        where.append("(name LIKE ? OR department LIKE ? OR phone LIKE ? OR eng_id LIKE ?)")
+        params += [like, like, like, like]
+
+    if admin != "1":
+        where.append("(status IS NULL OR status NOT IN ('삭제','삭제대기'))")
+
+    if status and status != "전체":
+        where.append("status = ?")
+        params.append(status)
+
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    sql = f"""
+    SELECT
+        eng_id,
+        name,
+        department,
+        grade,
+        license,
+        biz_license,
+        phone,
+        address,
+        join_date,
+        leaving_expected_date,
+        leave_date,
+        status,
+        COALESCE(photo_path, '') as photo_path
+    FROM engineers
+    {where_sql}
+    ORDER BY {order_col} {dir_sql}
+    LIMIT ?
+    """
+    params.append(limit)
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        return jsonify({"engineers": [dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+# ====== 기술인 엑셀 불러오기 ======
+# 템플릿 컬럼(왼쪽→오른쪽 순서):
+# 사번, 성명, 주민등록번호, 입사일, 주소, 전화번호, 부서명, 퇴사예정일, 퇴사일, 비고
+@app.route("/api/import/engineers", methods=["POST"])
+def import_engineers_excel():
+    from flask import request, jsonify
+    import pandas as pd
+    import io
+
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "no file"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".xlsx"):
+        return jsonify({"ok": False, "error": "xlsx only"}), 415
+
+    raw = f.read()
+    df = pd.read_excel(io.BytesIO(raw))
+
+    # 허용/매핑 컬럼 (한국어 헤더)
+    expected = ["사번","성명","주민등록번호","입사일","주소","전화번호","부서명","퇴사예정일","퇴사일","비고"]
+    # 헤더 자동 트림
+    df.columns = [str(c).strip() for c in df.columns]
+    # 누락 허용(있으면 사용)
+    for col in expected:
+        if col not in df.columns:
+            df[col] = None
+
+    # 날짜 -> yyyy-mm-dd 포맷
+    def norm_date(v):
+        if pd.isna(v) or v is None or str(v).strip()=="":
+            return None
+        try:
+            return pd.to_datetime(v).date().isoformat()
+        except Exception:
+            s = str(v).strip().replace(".","-").replace("/","-")
+            try:
+                return pd.to_datetime(s).date().isoformat()
+            except Exception:
+                return None
+
+    rows = []
+    for _, r in df.iterrows():
+        eng_id   = (str(r["사번"]).strip() if pd.notna(r["사번"]) else None)
+        name     = (str(r["성명"]).strip() if pd.notna(r["성명"]) else None)
+        rrn      = (str(r["주민등록번호"]).strip() if pd.notna(r["주민등록번호"]) else None)
+        join_d   = norm_date(r["입사일"])
+        addr     = (str(r["주소"]).strip() if pd.notna(r["주소"]) else None)
+        phone    = (str(r["전화번호"]).strip() if pd.notna(r["전화번호"]) else None)
+        dept     = (str(r["부서명"]).strip() if pd.notna(r["부서명"]) else None)
+        leave_exp= norm_date(r["퇴사예정일"])
+        leave_d  = norm_date(r["퇴사일"])
+        notes    = (str(r["비고"]).strip() if pd.notna(r["비고"]) else None)
+
+        if not eng_id or not name:
+            # 필수값 누락은 스킵
+            continue
+
+        # 상태 자동 산정
+        if leave_d:
+            status = "퇴사"
+        elif leave_exp:
+            status = "퇴사예정"
+        else:
+            status = "재직"
+
+        rows.append((eng_id, name, rrn, join_d, addr, phone, dept, leave_exp, leave_d, status, notes))
+
+    if not rows:
+        return jsonify({"ok": False, "error": "no valid rows"}), 400
+
+    conn = get_conn()
+    try:
+        # 기본값(등급/자격/업면허 등은 공란 유지)
+        conn.executemany("""
+            INSERT INTO engineers
+                (eng_id, name, resident_reg_no, join_date, address, phone, department,
+                 leaving_expected_date, leave_date, status, notes)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(eng_id) DO UPDATE SET
+                name=excluded.name,
+                resident_reg_no=excluded.resident_reg_no,
+                join_date=excluded.join_date,
+                address=excluded.address,
+                phone=excluded.phone,
+                department=excluded.department,
+                leaving_expected_date=excluded.leaving_expected_date,
+                leave_date=excluded.leave_date,
+                status=excluded.status,
+                notes=excluded.notes
+        """, rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"ok": True, "count": len(rows)})
+from import_routes import import_routes
+app.register_blueprint(import_routes, url_prefix="/api")

@@ -1,30 +1,28 @@
 import React, { useEffect, useState } from "react";
+import "./Header.css";
 
-function toggleTheme(){
-  const html = document.documentElement;
-  const next = html.getAttribute("data-theme")==="light" ? "dark" : "light";
-  html.setAttribute("data-theme", next);
-  localStorage.setItem("theme", next);
-}
-
-export default function Header(){
+export default function Header({ onToggleTheme, mode="dark", userName="관리자" }) {
   const [now, setNow] = useState(new Date());
-  useEffect(()=>{
-    const saved = localStorage.getItem("theme");
-    if(saved) document.documentElement.setAttribute("data-theme", saved);
-    const id = setInterval(()=>setNow(new Date()), 1000);
-    return ()=>clearInterval(id);
-  },[]);
-  const timeStr = now.toLocaleString("ko-KR", { hour12:false });
+  useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),1000); return()=>clearInterval(t); },[]);
+  const days=["일","월","화","수","목","금","토"];
+  const yyyy=now.getFullYear();
+  const mm=String(now.getMonth()+1).padStart(2,"0");
+  const dd=String(now.getDate()).padStart(2,"0");
+  const day=days[now.getDay()];
+  const hh=String(now.getHours()).padStart(2,"0");
+  const mi=String(now.getMinutes()).padStart(2,"0");
+  const ss=String(now.getSeconds()).padStart(2,"0");
+
   return (
-    <header className="header">
-      <div className="brand">
-        <a href="#/dashboard" className="button">HRM SYSTEM</a>
-      </div>
-      <div className="header-actions">
-        <span className="header-pill"><span className="icon">🕒</span>{timeStr}</span>
-        <button className="button" onClick={toggleTheme} title="라이트/다크 전환">🌓</button>
-        <span className="header-pill"><span className="icon">👤</span>관리자</span>
+    <header className="app-header">
+      {/* 로고 = 홈 이동 */}
+      <a href="#/engineers" className="brand" title="홈으로">HRM</a>
+      <div className="h-right">
+        <div className="clock">{yyyy}.{mm}.{dd}. ({day}) {hh}:{mi}:{ss}</div>
+        <button className="mode-btn" onClick={onToggleTheme} aria-label="모드 전환">
+          {mode==="dark" ? "🌙" : "☀️"}
+        </button>
+        <div className="user">{userName}</div>
       </div>
     </header>
   );

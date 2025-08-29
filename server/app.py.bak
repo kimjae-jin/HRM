@@ -1,0 +1,106 @@
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+import os, sqlite3
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH  = os.path.join(BASE_DIR, "../database/hrm.db")
+
+def get_conn():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+app = Flask(__name__)
+CORS(app)
+
+@app.route("/api/health")
+def health():
+    return {"ok": True}
+
+# === Engineers: list & detail (간단 버전) ===
+@app.route("/api/engineers", methods=["GET"])
+def list_engineers():
+    q = request.args.get("q","").strip()
+    limit = int(request.args.get("limit","500") or "500")
+    order = request.args.get("order","name")
+    dirn  = request.args.get("dir","asc").lower()
+    status = request.args.get("status","전체")
+    admin  = request.args.get("admin","0") == "1"
+
+    allowed_order = {"name","department","join_date","leave_date","leaving_expected_date"}
+    if order not in allowed_order:
+        order = "name"
+    dirn = "DESC" if dirn == "desc" else "ASC"
+
+    sql = """
+    SELECT eng_id, name, department, grade, license, biz_license,
+           phone, join_date, leaving_expected_date, leave_date, status, photo_path, address
+    FROM engineers
+    WHERE 1=1
+    """
+    params = []
+    if q:
+        sql += " AND (eng_id LIKE ? OR name LIKE ? OR department LIKE ?)"
+        params += [f"%{q}%", f"%{q}%", f"%{q}%"]
+    if status and status != "전체":
+        if admin:
+            sql += " AND status = ?"
+            params += [status]
+        else:
+            if status == "삭제" or status == "삭제대기":
+                sql += " AND 1=0"
+            else:
+                sql += " AND status = ?"
+                params += [status]
+    else:
+        if not admin:
+            sql += " AND (status IS NULL OR status NOT IN ('삭제','삭제대기'))"
+
+    sql += f" ORDER BY {order} {dirn} LIMIT ?"
+    params.append(limit)
+
+    conn = get_conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        return jsonify({"engineers":[dict(r) for r in rows]})
+    finally:
+        conn.close()
+
+@app.route("/api/engineers/<eng_id>", methods=["GET"])
+def get_engineer(eng_id):
+    conn = get_conn()
+    try:
+        eng = conn.execute("SELECT * FROM engineers WHERE eng_id=?", (eng_id,)).fetchone()
+        if not eng:
+            return jsonify({"error":"Engineer not found"}), 404
+        def allq(t):
+            try:
+                return [dict(x) for x in conn.execute(f"SELECT * FROM {t} WHERE engineer_id=?", (eng_id,)).fetchall()]
+            except sqlite3.OperationalError:
+                return []
+        return jsonify({
+            "engineer": dict(eng),
+            "education": allq("education"),
+            "qualifications": allq("qualifications"),
+            "careers": allq("careers"),
+            "trainings": allq("trainings"),
+            "attachments": allq("attachments")
+        })
+    finally:
+        conn.close()
+
+# === Import blueprint 등록 ===
+from import_routes import import_routes
+app.register_blueprint(import_routes, url_prefix="/api")
+
+# 디버그: 라우트 목록
+@app.route("/api/routes")
+def routes():
+    out = []
+    for r in app.url_map.iter_rules():
+        out.append({"rule": str(r), "methods": list(r.methods)})
+    return jsonify(out)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT","5050"))
+    app.run(host="127.0.0.1", port=port, debug=True)
