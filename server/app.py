@@ -107,3 +107,115 @@ if __name__ == "__main__":
 
 from admin_routes import admin_bp
 app.register_blueprint(admin_bp)
+# === Engineer CRUD routes (create/update) ===
+# - 신규 등록: POST /api/engineers
+# - 수정 저장:  PUT  /api/engineers/<eng_id>
+
+from flask import request, jsonify  # 중복 import 되어도 무방
+
+def _derive_birth_and_mask(resident_id: str):
+    """
+    resident_id 예: '900101-1234567'
+    반환: (birth_date '90.01.01.', rrn_masked '900101-1******')
+    """
+    if not resident_id:
+        return (None, None)
+    import re
+    m = re.match(r"^(\d{6})-(\d)\d{6}$", resident_id.strip())
+    if not m:
+        return (None, None)
+    yymmdd, first = m.group(1), m.group(2)
+    birth_date = f"{yymmdd[:2]}.{yymmdd[2:4]}.{yymmdd[4:6]}."
+    rrn_masked = f"{yymmdd}-{first}******"
+    return (birth_date, rrn_masked)
+
+@app.route("/api/engineers", methods=["POST"])
+def create_engineer():
+    data = request.get_json(force=True) or {}
+    # 필수값 체크
+    eng_id = (data.get("eng_id") or "").strip()
+    name   = (data.get("name") or "").strip()
+    if not eng_id or not name:
+        return jsonify({"ok": False, "error": "eng_id, name required"}), 400
+
+    # 선택 필드
+    resident_id = (data.get("resident_id") or "").strip()
+    join_date   = (data.get("join_date") or None)
+    address     = (data.get("address") or None)
+    phone       = (data.get("phone") or None)
+    department  = (data.get("department") or None)
+    leaving_expected_date = (data.get("leaving_expected_date") or None)
+    leave_date  = (data.get("leave_date") or None)
+    notes       = (data.get("notes") or None)
+    status      = (data.get("status") or "재직")
+
+    birth_date, rrn_masked = _derive_birth_and_mask(resident_id)
+
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO engineers
+        (eng_id, name, birth_date, rrn_masked, resident_id, phone, address,
+         department, grade, license, biz_license, overlapping_work,
+         join_date, leaving_expected_date, leave_date, status, notes, photo_path)
+        VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL)
+        ON CONFLICT(eng_id) DO UPDATE SET
+          name=excluded.name,
+          birth_date=excluded.birth_date,
+          rrn_masked=excluded.rrn_masked,
+          resident_id=excluded.resident_id,
+          phone=excluded.phone,
+          address=excluded.address,
+          department=excluded.department,
+          join_date=excluded.join_date,
+          leaving_expected_date=excluded.leaving_expected_date,
+          leave_date=excluded.leave_date,
+          status=excluded.status,
+          notes=excluded.notes
+    """, (
+        eng_id, name, birth_date, rrn_masked, resident_id, phone, address,
+        department, join_date, leaving_expected_date, leave_date, status, notes
+    ))
+    conn.commit()
+    return jsonify({"ok": True, "eng_id": eng_id})
+
+@app.route("/api/engineers/<eng_id>", methods=["PUT"])
+def update_engineer(eng_id):
+    data = request.get_json(force=True) or {}
+    name         = (data.get("name") or None)
+    resident_id  = (data.get("resident_id") or None)
+    join_date    = (data.get("join_date") or None)
+    address      = (data.get("address") or None)
+    phone        = (data.get("phone") or None)
+    department   = (data.get("department") or None)
+    leaving_expected_date = (data.get("leaving_expected_date") or None)
+    leave_date   = (data.get("leave_date") or None)
+    notes        = (data.get("notes") or None)
+    status       = (data.get("status") or None)
+
+    birth_date, rrn_masked = _derive_birth_and_mask(resident_id or "")
+
+    conn = get_conn()
+    conn.execute("""
+      UPDATE engineers SET
+        name=?,
+        birth_date=?,
+        rrn_masked=?,
+        resident_id=?,
+        phone=?,
+        address=?,
+        department=?,
+        join_date=?,
+        leaving_expected_date=?,
+        leave_date=?,
+        status=?,
+        notes=?
+      WHERE eng_id=?
+    """, (
+        name, birth_date, rrn_masked, resident_id,
+        phone, address, department, join_date,
+        leaving_expected_date, leave_date, status, notes, eng_id
+    ))
+    conn.commit()
+    return jsonify({"ok": True, "eng_id": eng_id})
+# === end Engineer CRUD routes ===
