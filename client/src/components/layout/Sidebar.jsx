@@ -1,31 +1,42 @@
-import React from "react";
+import React, { useMemo } from "react";
 
 const items = [
-  { href:"#/engineers", label:"기술인" },
-  { href:"#/projects",  label:"프로젝트 (개발중)" },
-  { href:"#/trainings", label:"교육훈련 (개발중)" },
-  { href:"#/licenses",  label:"업/면허 (개발중)" },
-  { href:"#/finance",   label:"청구/재무 (개발중)" },
-  { href:"#/partners",  label:"관계사 (개발중)" },
-  { href:"#/tax",       label:"세금계산서 (개발중)" },
-  { href:"#/weekly",    label:"주간회의 (개발중)" },
+  { key:"engineers",  label:"기술인",           href:"#/engineers",   dev:false,  ico:"👤" },
+  { key:"projects",   label:"프로젝트",         href:"#/projects",    dev:true,   ico:"📁" },
+  { key:"trainings",  label:"교육훈련",         href:"#/trainings",   dev:true,   ico:"🎓" },
+  { key:"licenses",   label:"업/면허",          href:"#/licenses",    dev:true,   ico:"🪪" },
+  { key:"finance",    label:"청구/재무",        href:"#/finance",     dev:true,   ico:"💳" },
+  { key:"partners",   label:"관계사",           href:"#/partners",    dev:true,   ico:"🏢" },
+  { key:"tax",        label:"세금계산서",       href:"#/tax",         dev:true,   ico:"🧾" },
+  { key:"weekly",     label:"주간회의",         href:"#/weekly",      dev:true,   ico:"🗓️" },
 ];
 
 export default function Sidebar(){
-  const hash = typeof window !== "undefined" ? window.location.hash || "#/engineers" : "#/engineers";
+  const hash = typeof window !== "undefined" ? window.location.hash : "";
+  const activeKey = useMemo(() => {
+    const m = hash.match(/^#\/([^/?]+)/);
+    return m ? m[1] : "engineers";
+  }, [hash]);
+
   return (
     <aside className="sidebar">
-      <div className="nav-group">메뉴</div>
-      <nav>
-        {items.map(it=>{
+      <div className="brand">HRM</div>
+
+      <div className="nav-group-title">메뉴</div>
+      <ul className="nav-list" role="navigation" aria-label="주요 메뉴">
+        {items.map(it => {
           const active = hash.startsWith(it.href);
           return (
-            <a key={it.href} className={`nav-item ${active?'active':''}`} href={it.href}>
-              {it.label}
-            </a>
+            <li className="nav-item" key={it.key}>
+              <a className={`nav-link${active ? " active":""}`} href={it.href}>
+                <span className="nav-ico" aria-hidden>{it.ico}</span>
+                <span>{it.label}</span>
+                {it.dev && <span className="nav-badge">(개발중)</span>}
+              </a>
+            </li>
           );
         })}
-      </nav>
+      </ul>
     </aside>
   );
 }
