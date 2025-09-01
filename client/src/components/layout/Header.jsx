@@ -1,31 +1,61 @@
 import React, { useEffect, useState } from "react";
 
-function useKoreanDateTime(){
+function useDateTime(){
   const [now, setNow] = useState(new Date());
-  useEffect(() => { const t=setInterval(()=>setNow(new Date()), 30*1000); return ()=>clearInterval(t); },[]);
-  const yo=["일","월","화","수","목","금","토"][now.getDay()];
-  const z=n=>String(n).padStart(2,"0");
-  return `${now.getFullYear()}.${z(now.getMonth()+1)}.${z(now.getDate())}. (${yo}) ${z(now.getHours())}:${z(now.getMinutes())}`;
+  useEffect(()=>{
+    const t = setInterval(()=>setNow(new Date()), 1000);
+    return ()=> clearInterval(t);
+  },[]);
+  const y = now.getFullYear();
+  const mm = String(now.getMonth()+1).padStart(2,"0");
+  const dd = String(now.getDate()).padStart(2,"0");
+  const weekday = ["일","월","화","수","목","금","토"][now.getDay()];
+  const hh = String(now.getHours()).padStart(2,"0");
+  const mi = String(now.getMinutes()).padStart(2,"0");
+  const ss = String(now.getSeconds()).padStart(2,"0");
+  return `${y}.${mm}.${dd}. (${weekday}) ${hh}:${mi}:${ss}`;
 }
 
-function Sun({size=18}){return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg>)}
-function Moon({size=18}){return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>)}
+function useTheme(){
+  const [theme, setTheme] = useState(
+    document.documentElement.getAttribute("data-theme") || "dark"
+  );
+  useEffect(()=>{
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+  return { theme, toggle: ()=> setTheme(t => t==="dark" ? "light" : "dark") };
+}
+
+function SunIcon({size=18}){ return(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm0 4v-2M12 4V2M4 12H2m20 0h-2M5.64 5.64 4.22 4.22m15.56 15.56-1.42-1.42M18.36 5.64l1.42-1.42M4.22 19.78l1.42-1.42"/>
+  </svg>
+)}
+function MoonIcon({size=18}){ return(
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+      d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 1 0 21 12.79z"/>
+  </svg>
+)}
 
 export default function Header(){
-  const [theme, setTheme] = useState(()=> localStorage.getItem("theme") || "dark");
-  const dt = useKoreanDateTime();
-  useEffect(()=>{ document.documentElement.setAttribute("data-theme", theme); localStorage.setItem("theme", theme); },[theme]);
+  const dt = useDateTime();
+  const { theme, toggle } = useTheme();
+
   return (
     <header className="app-header">
-      <div className="hdr-left">
-        <a className="hdr-logo" href="#/">HRM</a>
+      <div className="app-header__left">
+        <span className="brand" onClick={()=>{ location.hash = "#/engineers"; }}>HRM</span>
       </div>
-      <div className="hdr-right">
-        <span className="hdr-datetime">{dt}</span>
-        <button className="hdr-iconbtn" title="모드 전환" onClick={()=>setTheme(t=>t==="dark"?"light":"dark")}>
-          {theme==="dark"? <Moon/> : <Sun/>}
+      <div className="app-header__right">
+        <span className="dt">{dt}</span>
+        <button className="icon-btn" onClick={toggle} title="라이트/다크 전환">
+          {theme==="dark" ? <MoonIcon/> : <SunIcon/>}
         </button>
-        <span className="hdr-user">관리자</span>
+        <span className="divider" />
+        <span className="admin">관리자</span>
       </div>
     </header>
   );

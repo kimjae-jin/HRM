@@ -1,45 +1,61 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import Header from "./components/layout/Header";
 import Sidebar from "./components/layout/Sidebar";
 import EngineersList from "./pages/engineers/EngineersList";
 import EngineerDetail from "./pages/engineers/EngineerDetail";
+import ProjectsList from "./pages/projects/ProjectsList";
 import Dashboard from "./pages/Dashboard";
 import "./styles/App.css";
 
-function useHash(){
-  const [h, setH] = useState(location.hash || "#/engineers");
+function useRoute(){
+  // 해시 우선, 해시 없고 pathname이 /engineers* 인 경우 보정
+  const normalize = ()=>{
+    if(!location.hash){
+      if(location.pathname.startsWith("/engineers")){
+        location.hash = "#"+location.pathname;   // /engineers → #/engineers
+      }else{
+        location.hash = "#/engineers";
+      }
+    }
+  };
+  normalize();
+  const [h, setH] = useState(location.hash);
   useEffect(()=>{
-    const on = ()=> setH(location.hash || "#/engineers");
+    const on = ()=> setH(location.hash);
     window.addEventListener("hashchange", on);
-    if(!location.hash) location.hash = "#/engineers";
     return ()=> window.removeEventListener("hashchange", on);
   },[]);
-  return h;
+  const [route, param] = useMemo(()=>{
+    const parts = (h.replace(/^#\//,"") || "engineers").split("/");
+    return [parts[0], parts[1]]; // route, id
+  }, [h]);
+  return { route, param };
+}
+
+function Breadcrumb({route, param}){
+  const map = { engineers:"기술인", projects:"프로젝트" };
+  const here = param ? `${map[route]||route} / ${param}` : (map[route]||route);
+  return <div className="breadcrumb">홈 / {here}</div>;
 }
 
 export default function App(){
-  const hash = useHash();                // 예) "#/engineers/ENG001"
-  const [route, param] = useMemo(()=>{
-    const parts = (hash.replace(/^#\//,"") || "engineers").split("/");
-    return [parts[0], parts[1]];         // route, id
-  },[hash]);
-
-  // 레이아웃: 헤더 고정, 내용부만 스크롤
-  const layoutStyle = { display:"grid", gridTemplateColumns:"240px 1fr", height:"100vh" };
-  const contentStyle = { padding:"16px 16px 24px 16px", overflow:"hidden" };
-  const mainStyle = { height:"100%", overflow:"auto" };
-
+  const { route, param } = useRoute();
   let page = null;
   if(route==="engineers" && !param) page = <EngineersList/>;
+  else if(route==="engineers" && param==="new") page = <EngineerDetail isNew={true}/>;
   else if(route==="engineers" && param) page = <EngineerDetail engId={param}/>;
+  else if(route==="projects") page = <ProjectsList/>;
   else page = <Dashboard/>;
 
   return (
-    <div style={layoutStyle}>
-      <Sidebar/>
-      <div style={contentStyle}>
-        <main style={mainStyle}>
+    <div className="app-shell">
+      <div className="sidebar"><Sidebar/></div>
+      <Header/>
+      <div className="content">
+        <div className="content-inner">
+          <Breadcrumb route={route} param={param}/>
           {page}
-        </main>
+        </div>
       </div>
     </div>
   );
