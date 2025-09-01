@@ -1,205 +1,53 @@
+/* ===== THEME ===== */
 :root{
-  --header-h: 56px;
-  --sidebar-w: 240px;
-  --bg: #0b0b0d;
-  --layer: #141416;
-  --layer-2: #18181a;
-  --border: #2a2a2d;
-  --text: #e6e6e7;
-  --muted: #b8b8bb;
-  --muted-2: #9a9aa0;
-  --accent: #0a84ff;
-  --accent-quiet: #1f2937;
-}
-html,body,#root{height:100%}
-*{box-sizing:border-box}
-
-body{
-  margin:0;
-  background:var(--bg)!important;
-  color:var(--text)!important;
-  -webkit-font-smoothing:antialiased;
-  -moz-osx-font-smoothing:grayscale;
-  /* ★ 부드러운 산세리프 계열 (애플/윈도우 모두 자연스럽게) */
-  font-family: "SF Pro Text","Apple SD Gothic Neo","Pretendard","Segoe UI","Noto Sans KR",system-ui,Roboto,Arial,sans-serif;
-  font-size:14.5px; line-height:1.6; letter-spacing:0.1px;
-}
-
-/* 헤더/사이드바/메인 간단 정의(레이아웃은 기존 유지) */
-.app-header{
-  position:fixed; inset:0 0 auto 0; height:var(--header-h);
-  display:flex; align-items:center; gap:12px; padding:0 16px;
-  background:var(--layer); border-bottom:1px solid var(--border); z-index:1000;
-}
-.app-sidebar{
-  position:fixed; top:var(--header-h); left:0; bottom:0; width:var(--sidebar-w);
-  background:var(--layer); border-right:1px solid var(--border); padding:12px 10px; overflow:auto; z-index:900;
-}
-.app-main{
-  margin-top:var(--header-h); margin-left:var(--sidebar-w);
-  min-height:calc(100% - var(--header-h)); padding:16px;
-}
-
-.page-toolbar{
-  position:sticky; top:0; z-index:5;
-  display:flex; flex-wrap:wrap; gap:8px; align-items:center;
-  padding:10px 12px; margin-bottom:12px;
-  background:rgba(20,20,22,.85); border:1px solid var(--border);
-  border-radius:12px; backdrop-filter:blur(6px);
-}
-
-.input{
-  height:36px; padding:0 12px; border:1px solid var(--border);
-  border-radius:10px; color:var(--text); background:#0e0e11; outline:none;
-}
-.input::placeholder{color:var(--muted-2)}
-.input:focus{border-color:#3a3a3f; box-shadow:0 0 0 2px rgba(10,132,255,.15)}
-
-.btn{
-  height:36px; padding:0 12px; border-radius:10px; border:1px solid var(--border);
-  background:#1a1b1e; color:var(--text); cursor:pointer; transition:background .15s,border-color .15s;
-}
-.btn:hover{background:#202124; border-color:#34343a}
-.btn.primary{background:#0f62fe; border-color:#0f62fe}
-.btn.primary:hover{background:#1053d6; border-color:#1053d6}
-.btn.ghost{background:transparent}
-
-/* 표: 행간/패딩 넉넉히 (딱딱함 완화) */
-.table{width:100%; border-collapse:separate; border-spacing:0; background:var(--layer);
-  border:1px solid var(--border); border-radius:12px; overflow:hidden;}
-.table thead th{
-  position:sticky; top:0; z-index:2; background:#161619; color:var(--muted);
-  font-weight:600; text-align:left; padding:12px 14px; border-bottom:1px solid var(--border);
-}
-.table tbody td{
-  padding:12px 14px; color:var(--text); border-bottom:1px solid #1f1f22;
-}
-.table tbody tr:hover{background:#141418}
-.table-empty{padding:24px; color:var(--muted)}
-:root{
-  --sidebar-w: 240px;           /* 사이드바 폭 */
-  --side-bg: #121214;           /* 시스템 다크 톤 */
-  --side-text: #c9ccd1;         /* 본문 텍스트 */
-  --side-dim: #8d9199;          /* 보조 텍스트 */
-  --side-hover: #1b1d21;        /* 호버 배경 */
-  --side-active: #22252a;       /* 활성 라인 */
-  --brand: #9ca3af;             /* HRM 로고 텍스트(은은한 그레이) */
-  --sep: #2a2d33;               /* 구분선 */
-}
-
-/* 레이아웃 기본: 사이드바 고정, 콘텐츠는 왼쪽 여백으로 흐름 */
-.app-shell{
-  display:flex;
-  min-height:100vh;
-  background:#0e0f11;
-  color:#e5e7eb;
-}
-.sidebar{
-  position:sticky; top:0;
-  width:var(--sidebar-w);
-  min-width:var(--sidebar-w);
-  background:var(--side-bg);
-  border-right:1px solid var(--sep);
-  height:100vh; overflow:auto;
-  padding:16px 12px;
-}
-.content{
-  flex:1 1 auto;
-  min-width:0;
-  padding:16px 20px;
-}
-
-/* 사이드바 타이포/간격 */
-.sidebar .brand{
-  font-weight:700;
-  letter-spacing:.2px;
-  color:var(--brand);
-  margin:2px 6px 12px;
-  user-select:none;
-}
-.nav-group-title{
-  font-size:.78rem;
-  color:var(--side-dim);
-  margin:10px 8px 6px;
-}
-.nav-list{margin:0; padding:0; list-style:none;}
-.nav-item{margin:2px 0;}
-.nav-link{
-  display:flex; align-items:center; gap:10px;
-  padding:10px 12px; border-radius:8px;
-  font-size:.95rem; color:var(--side-text);
-  text-decoration:none;
-}
-.nav-link:hover{background:var(--side-hover);}
-.nav-link.active{background:var(--side-active);}
-
-.nav-ico{width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center;}
-.nav-badge{margin-left:6px; font-size:.78rem; color:var(--side-dim);}
-
-/* 사이드바 오른쪽 조절 그립(간단한 시각 핸들) */
-.sidebar::after{
-  content:""; position:absolute; top:0; right:-2px; width:4px; height:100%;
-  cursor:ew-resize; background:transparent;
-}
-
-/* 브레드크럼(헤더 영역 바깥, 콘텐츠 상단 좌측 정렬) */
-.breadcrumb-bar{
-  display:flex; align-items:center; gap:8px;
-  font-size:.9rem; color:#aeb3bb; margin:4px 0 12px;
-}
-.bc-link{color:#cfd3d8; text-decoration:none;}
-.bc-link:hover{text-decoration:underline;}
-.bc-sep{opacity:.5;}
-/* === Header === */
-.app-header{
-  position:sticky; top:0; z-index:50;
-  display:flex; align-items:center; justify-content:space-between;
-  height:56px; padding:0 16px;
-  background:#0f1113; border-bottom:1px solid var(--sep);
-}
-.hdr-left{display:flex; align-items:center; gap:12px;}
-.hdr-logo{font-weight:800; color:#c9cdd3; text-decoration:none; letter-spacing:.3px;}
-.hdr-right{display:flex; align-items:center; gap:14px;}
-.hdr-datetime{color:#b9bec6; font-size:.9rem;}
-.hdr-iconbtn{background:transparent; border:1px solid #2a2d33; color:#cfd3d8; border-radius:10px; width:34px; height:34px; display:flex; align-items:center; justify-content:center;}
-.hdr-iconbtn:hover{background:#1b1d21;}
-.hdr-user{color:#cfd3d8; font-weight:600;}
-
-/* 사이드바가 컨텐츠 밑으로 깔리는 현상 방지 */
-.sidebar{z-index:40;}
-/* ===== Theme variables ===== */
-:root{
-  --bg: #0f1113; --panel:#14171b; --text:#d7dbe0; --muted:#a8afb8; --line:#23262b;
-  --link:#cbd1d8; --link-active:#ffffff;
-  --sidebar-w: 224px;
+  --bg:#0f1113; --panel:#14171b; --text:#d7dbe0; --muted:#a8afb8; --line:#23262b;
+  --link:#cbd1d8; --link-active:#ffffff; --sidebar-w:224px;
 }
 :root[data-theme="light"]{
   --bg:#f6f7f9; --panel:#ffffff; --text:#111418; --muted:#5d6672; --line:#e7e9ee;
   --link:#3b3f46; --link-active:#111418;
 }
+
+/* ===== LAYOUT: 전체 스크롤 금지, 콘텐츠만 스크롤 ===== */
 html, body, #root{height:100%;}
-body{background:var(--bg); color:var(--text); margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", Arial, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;}
+html, body{overflow:hidden;}
+body{margin:0; background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;
+}
 a{color:var(--link); text-decoration:none}
 
-/* ===== Header ===== */
-.app-header{position:sticky; top:0; z-index:50; display:flex; align-items:center; justify-content:space-between; height:56px; padding:0 16px; background:var(--panel); border-bottom:1px solid var(--line);}
+/* Header 고정 */
+.app-header{position:sticky; top:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
+  height:56px; padding:0 16px; background:var(--panel); border-bottom:1px solid var(--line);
+}
 .hdr-left{display:flex; align-items:center; gap:12px;}
 .hdr-logo{font-weight:800; color:var(--link-active); letter-spacing:.3px;}
 .hdr-right{display:flex; align-items:center; gap:14px;}
 .hdr-datetime{color:var(--muted); font-size:.9rem;}
-.hdr-iconbtn{background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer;}
+.hdr-iconbtn{background:transparent; border:1px solid var(--line); color:var(--text);
+  border-radius:10px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+}
 .hdr-iconbtn:hover{background:rgba(255,255,255,.04);}
 .hdr-user{color:var(--text); font-weight:600;}
 
-/* ===== Layout ===== */
-.app-frame{display:block;}
-.sidebar{position:fixed; left:0; top:56px; bottom:0; width:var(--sidebar-w); background:var(--panel); border-right:1px solid var(--line); z-index:40; overflow:auto; padding:12px 6px;}
-.app-main{margin-left:var(--sidebar-w); padding:16px; min-height:calc(100vh - 56px);}
-.content-header{display:flex; align-items:center; gap:8px; margin:2px 0 10px; color:var(--muted); font-size:.9rem;}
-.content-header a{color:var(--muted);} .content-header b{color:var(--text);}
+/* Sidebar 고정 */
+.sidebar{position:fixed; left:0; top:56px; bottom:0; width:var(--sidebar-w); background:var(--panel);
+  border-right:1px solid var(--line); z-index:40; overflow:auto; padding:10px 6px;
+}
 
-/* ===== Sidebar nav ===== */
-.brand{font-size:.0; height:0; overflow:hidden;} /* 좌측 로고문구는 헤더로 일원화 */
+/* 메인: 헤더 높이/사이드바 보정 + 이 영역만 스크롤 */
+.app-main{position:relative; margin-left:var(--sidebar-w); height:calc(100vh - 56px);
+  overflow:auto; padding:10px 16px 16px;
+}
+
+/* 브레드크럼: 컴팩트, 상단 좌측 고정 느낌(덜 밀리게) */
+.content-header{display:flex; align-items:center; gap:8px; margin:2px 0 8px;
+  color:var(--muted); font-size:.9rem;
+}
+.content-header a{color:var(--muted);}
+.content-header b{color:var(--text);}
+
+/* 사이드바 네비 */
 .nav-list{list-style:none; margin:0; padding:0;}
 .nav-item{margin:2px 4px;}
 .nav-link{display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; color:var(--link); border:1px solid transparent;}
@@ -208,5 +56,18 @@ a{color:var(--link); text-decoration:none}
 .nav-link:hover{background:rgba(255,255,255,.04);}
 .nav-badge{margin-left:4px; font-size:.8rem; color:var(--muted);}
 
-/* 테이블/리스트 컨테이너가 헤더 밑으로만 스크롤되도록 */
-.table-wrap{background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:auto;}
+/* 리스트 공통 박스 */
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:12px;}
+.toolbar{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;}
+.toolbar .btn{height:32px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--text); padding:0 10px; cursor:pointer;}
+.toolbar .btn.primary{background:rgba(255,255,255,.06);}
+.toolbar input, .toolbar select{height:32px; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--text); padding:0 10px;}
+
+/* 테이블 영역은 자체 스크롤 가능 */
+.table-wrap{border:1px solid var(--line); border-radius:12px; overflow:auto;}
+.table{width:100%; border-collapse:collapse; font-size:.95rem;}
+.table thead th{position:sticky; top:0; background:var(--panel); border-bottom:1px solid var(--line); text-align:left; padding:10px;}
+.table tbody td{border-top:1px solid var(--line); padding:10px;}
+.row-hover:hover{background:rgba(255,255,255,.03); cursor:pointer;}
+/* 전화 마스킹 */
+.dim {letter-spacing:.5px;}
