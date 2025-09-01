@@ -71,3 +71,38 @@ a{color:var(--link); text-decoration:none}
 .row-hover:hover{background:rgba(255,255,255,.03); cursor:pointer;}
 /* 전화 마스킹 */
 .dim {letter-spacing:.5px;}
+
+/* ===== Input controls (light/dark) ===== */
+:root{
+  --input-bg: #ffffff;
+  --input-border: #d0d5dd;
+  --input-fg: #111827;
+  --panel-bg: #111418;
+}
+:root[data-theme="dark"]{
+  --input-bg: #1c1f24;        /* 애플 다크톤 근접 */
+  --input-border: #2c3138;
+  --input-fg: #e5e7eb;
+  --panel-bg: #0d0f13;
+}
+
+input, select, textarea{
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  height: 36px;
+  outline: none;
+}
+input[type="date"]{ height: 36px; }
+input::placeholder, textarea::placeholder{ color: #9aa4b2; }
+input:focus, select:focus, textarea:focus{
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79,70,229,.25);
+}
+
+/* 패널/테이블 배경도 톤 맞춤 */
+.panel{ background: var(--panel-bg); border: 1px solid var(--input-border); border-radius: 10px; }
+.table-wrap{ overflow:auto; max-height: calc(100vh - var(--header-h,56px) - 90px); } /* 헤더 밑으로만 스크롤 */
+.toolbar{ position: sticky; top: 0; z-index: 10; background: var(--panel-bg); padding: 8px; border-bottom: 1px solid var(--input-border); border-radius: 10px 10px 0 0; }

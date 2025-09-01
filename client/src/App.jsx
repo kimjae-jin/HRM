@@ -1,54 +1,46 @@
-import React, { useEffect, useMemo, useState } from "react";
-import "./styles/App.css";
-import Header from "./components/layout/Header";
+import React, { useEffect, useState, useMemo } from "react";
 import Sidebar from "./components/layout/Sidebar";
 import EngineersList from "./pages/engineers/EngineersList";
 import EngineerDetail from "./pages/engineers/EngineerDetail";
-
-const Placeholder = ({title}) => (
-  <div>
-    <div className="content-header"><a href="#/">홈</a> / <b>{title}</b></div>
-    <div className="panel" style={{padding:16}}>{title} (개발중)</div>
-  </div>
-);
+import Dashboard from "./pages/Dashboard";
+import "./styles/App.css";
 
 function useHash(){
-  const [h, setH] = useState(()=>window.location.hash || "#/engineers");
-  useEffect(()=>{ const on=()=>setH(window.location.hash||"#/engineers"); window.addEventListener("hashchange", on); return ()=>window.removeEventListener("hashchange", on); },[]);
+  const [h, setH] = useState(location.hash || "#/engineers");
+  useEffect(()=>{
+    const on = ()=> setH(location.hash || "#/engineers");
+    window.addEventListener("hashchange", on);
+    if(!location.hash) location.hash = "#/engineers";
+    return ()=> window.removeEventListener("hashchange", on);
+  },[]);
   return h;
 }
 
 export default function App(){
-  const hash = useHash();
-  const route = useMemo(()=>{
-    const m = hash.match(/^#\/([^/]+)\/?([^/]+)?/); 
-    return { path: m?.[1] || "engineers", id: m?.[2] };
+  const hash = useHash();                // 예) "#/engineers/ENG001"
+  const [route, param] = useMemo(()=>{
+    const parts = (hash.replace(/^#\//,"") || "engineers").split("/");
+    return [parts[0], parts[1]];         // route, id
   },[hash]);
 
-  let page = null, crumb = null;
-  switch(route.path){
-    case "engineers":
-      crumb = (<div className="content-header"><a href="#/">홈</a> / <b>기술인</b></div>);
-      page = route.id ? <EngineerDetail engId={route.id}/> : <EngineersList/>;
-      break;
-    case "projects":  crumb=(<div className="content-header"><a href="#/">홈</a> / <b>프로젝트</b></div>); page=<Placeholder title="프로젝트"/>; break;
-    case "trainings": crumb=(<div className="content-header"><a href="#/">홈</a> / <b>교육훈련</b></div>); page=<Placeholder title="교육훈련"/>; break;
-    case "licenses":  crumb=(<div className="content-header"><a href="#/">홈</a> / <b>업/면허</b></div>); page=<Placeholder title="업/면허"/>; break;
-    case "finance":   crumb=(<div className="content-header"><a href="#/">홈</a> / <b>청구/재무</b></div>); page=<Placeholder title="청구/재무"/>; break;
-    case "partners":  crumb=(<div className="content-header"><a href="#/">홈</a> / <b>관계사</b></div>); page=<Placeholder title="관계사"/>; break;
-    case "tax":       crumb=(<div className="content-header"><a href="#/">홈</a> / <b>세금계산서</b></div>); page=<Placeholder title="세금계산서"/>; break;
-    case "weekly":    crumb=(<div className="content-header"><a href="#/">홈</a> / <b>주간회의</b></div>); page=<Placeholder title="주간회의"/>; break;
-    default:          crumb=(<div className="content-header"><a href="#/">홈</a> / <b>알 수 없음</b></div>); page=<Placeholder title="알 수 없음"/>; break;
-  }
+  // 레이아웃: 헤더 고정, 내용부만 스크롤
+  const layoutStyle = { display:"grid", gridTemplateColumns:"240px 1fr", height:"100vh" };
+  const contentStyle = { padding:"16px 16px 24px 16px", overflow:"hidden" };
+  const mainStyle = { height:"100%", overflow:"auto" };
+
+  let page = null;
+  if(route==="engineers" && !param) page = <EngineersList/>;
+  else if(route==="engineers" && param) page = <EngineerDetail engId={param}/>;
+  else page = <Dashboard/>;
 
   return (
-    <div className="app-frame">
-      <Header/>
+    <div style={layoutStyle}>
       <Sidebar/>
-      <main className="app-main">
-        {crumb}
-        {page}
-      </main>
+      <div style={contentStyle}>
+        <main style={mainStyle}>
+          {page}
+        </main>
+      </div>
     </div>
   );
 }
