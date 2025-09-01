@@ -1,53 +1,63 @@
-import React, { useEffect, useState } from "react";
-import Sidebar from "./components/layout/Sidebar";
+import React, { useEffect, useMemo, useState } from "react";
+import "./styles/App.css";
 import Header from "./components/layout/Header";
+import Sidebar from "./components/layout/Sidebar";
+
+// 이미 존재하는 페이지는 그대로 사용
 import EngineersList from "./pages/engineers/EngineersList";
 import EngineerDetail from "./pages/engineers/EngineerDetail";
-import EngineerForm from "./pages/engineers/EngineerForm";
-import ProjectsList from "./pages/projects/ProjectsList";
 
+// 아직 개발 전인 페이지는 '개발중' 플레이스홀더
+const Placeholder = ({title}) => (
+  <div>
+    <div className="content-header"><a href="#/">홈</a> / <b>{title}</b></div>
+    <div className="table-wrap" style={{padding:16}}> {title} (개발중) </div>
+  </div>
+);
+
+// 간단 해시 라우터
 function useHash(){
-  const [h,setH]=useState(window.location.hash||"#/engineers");
+  const [h, setH] = useState(()=>window.location.hash || "#/engineers");
   useEffect(()=>{
-    const on=()=>setH(window.location.hash||"#/engineers");
+    const on = ()=> setH(window.location.hash || "#/engineers");
     window.addEventListener("hashchange", on);
-    return ()=>window.removeEventListener("hashchange", on);
+    return ()=> window.removeEventListener("hashchange", on);
   },[]);
-  return [h,(to)=>{window.location.hash=to;}];
+  return h;
 }
 
 export default function App(){
-  const [hash, go] = useHash();
+  const hash = useHash();
+  const route = useMemo(()=>{
+    const [_, path, id] = (hash.match(/^#\/([^/]+)\/?([^/]+)?/)||[]);
+    return {path: path||"engineers", id};
+  },[hash]);
 
-  // 라우팅 파싱
-  let page="engineers", params={};
-  const m = hash.match(/^#\/([^\/]+)(?:\/(.*))?$/);
-  if(m){ page=m[1]; params.rest = m[2]||""; }
-
-  let content=null;
-  if(page==="engineers"){
-    if(params.rest==="new"){
-      content=<EngineerForm onDone={(id)=>go(id?`#/engineers/${id}`:"#/engineers")} />;
-    }else if(params.rest?.endsWith("/edit")){
-      const id=params.rest.replace(/\/edit$/,"");
-      content=<EngineerForm id={id} onDone={(eid)=>go(eid?`#/engineers/${eid}`:"#/engineers")} />;
-    }else if(params.rest){
-      content=<EngineerDetail engId={params.rest} go={go} />;
-    }else{
-      content=<EngineersList go={go} />;
+  const Content = useMemo(()=>{
+    switch(route.path){
+      case "engineers":
+        if(route.id){ return ()=><EngineerDetail engId={route.id}/>; }
+        return ()=><div>
+          <div className="content-header"><a href="#/">홈</a> / <b>기술인</b></div>
+          <EngineersList/>
+        </div>;
+      case "projects":   return ()=><Placeholder title="프로젝트"/>;
+      case "trainings":  return ()=><Placeholder title="교육훈련"/>;
+      case "licenses":   return ()=><Placeholder title="업/면허"/>;
+      case "finance":    return ()=><Placeholder title="청구/재무"/>;
+      case "partners":   return ()=><Placeholder title="관계사"/>;
+      case "tax":        return ()=><Placeholder title="세금계산서"/>;
+      case "weekly":     return ()=><Placeholder title="주간회의"/>;
+      default:           return ()=><Placeholder title="알 수 없는 경로"/>;
     }
-  }else if(page==="projects"){
-    content=<ProjectsList />;
-  }else{
-    content=<EngineersList go={go} />;
-  }
+  },[route]);
 
   return (
-    <div className="layout">
-      <Header />
-      <Sidebar go={go} />
+    <div className="app-frame">
+      <Header/>
+      <Sidebar/>
       <main className="app-main">
-        {content}
+        <Content/>
       </main>
     </div>
   );
