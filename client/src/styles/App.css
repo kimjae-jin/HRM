@@ -150,3 +150,20 @@ body{
 .bc-link{color:#cfd3d8; text-decoration:none;}
 .bc-link:hover{text-decoration:underline;}
 .bc-sep{opacity:.5;}
+/* === Header === */
+.app-header{
+  position:sticky; top:0; z-index:50;
+  display:flex; align-items:center; justify-content:space-between;
+  height:56px; padding:0 16px;
+  background:#0f1113; border-bottom:1px solid var(--sep);
+}
+.hdr-left{display:flex; align-items:center; gap:12px;}
+.hdr-logo{font-weight:800; color:#c9cdd3; text-decoration:none; letter-spacing:.3px;}
+.hdr-right{display:flex; align-items:center; gap:14px;}
+.hdr-datetime{color:#b9bec6; font-size:.9rem;}
+.hdr-iconbtn{background:transparent; border:1px solid #2a2d33; color:#cfd3d8; border-radius:10px; width:34px; height:34px; display:flex; align-items:center; justify-content:center;}
+.hdr-iconbtn:hover{background:#1b1d21;}
+.hdr-user{color:#cfd3d8; font-weight:600;}
+
+/* 사이드바가 컨텐츠 밑으로 깔리는 현상 방지 */
+.sidebar{z-index:40;}
